@@ -1,5 +1,11 @@
 """
-
+Contains the shared helper functions used by the other files.
+It handles things such as:
+*Splitting an .abc collection into individual songs using X:
+*Extracting metadata such as T:, R:, M:, L:, and K:
+*Finding chord annotations such as "G" or "Em"
+*Creating chord–melody tokens
+*Normalizing chords and melody text
 """
 
 from __future__ import annotations

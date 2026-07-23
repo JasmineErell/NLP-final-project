@@ -1,5 +1,10 @@
-"""Inspect the raw Nottingham ABC files before preprocessing."""
-
+"""Used to inspect the raw dataset before processing everything.
+Reads the .abc files
+Counts songs in each file
+Prints metadata for several songs
+Shows the first generated tokens
+use with : python3 -m src.pipeline.inspect_data --input ABC_cleaned --samples 10
+"""
 from __future__ import annotations
 
 import argparse
