@@ -36,6 +36,7 @@ class ParsedTune:
     key: str | None
     raw_body: str
     metadata_tokens: list[str]
+    segments: list[dict]
     segment_tokens: list[str]
     sequence_tokens: list[str]
     has_chords: bool
@@ -98,25 +99,10 @@ def normalize_chord(chord: str) -> str:
 
 
 def normalize_melody(melody: str) -> str:
-    """Normalize spacing and common structural symbols inside a melody segment.
-
-    Notes, accidentals, octaves, durations, tuplets, slurs and ties are retained.
-    Whitespace is removed so a complete chord-melody segment is one token.
-    """
-    melody = melody.replace("\\", "")
-    melody = re.sub(r"\s+", "", melody)
-
-    # Replace longer symbols before shorter ones.
-    replacements = [
-        ("|:", "<REPEAT_START>"),
-        (":|", "<REPEAT_END>"),
-        ("|]", "<FINAL_BAR>"),
-        ("[|", "<DOUBLE_BAR_START>"),
-        ("||", "<DOUBLE_BAR>"),
-        ("|", "<BAR>"),
-    ]
-    for source, target in replacements:
-        melody = melody.replace(source, target)
+    """Normalize whitespace while preserving note-group boundaries."""
+    melody = melody.replace("\\\n", "")
+    melody = melody.replace("\n", " ")
+    melody = re.sub(r"[ \t]+", " ", melody)
 
     return melody.strip()
 
@@ -177,28 +163,35 @@ def prepare_music_body(lines: Iterable[str]) -> str:
     return "\n".join(prepared)
 
 
-def extract_chord_melody_segments(body: str) -> tuple[list[str], list[str]]:
-    """Create one token per quoted chord and its following melody fragment.
-
-    Melody before the first chord is retained as CHORD_NONE when the tune later
-    contains chord annotations. Songs with no quoted chord symbols are marked
-    unusable by the caller instead of becoming one enormous unique token.
-    """
+def extract_chord_melody_segments(
+    body: str,
+) -> tuple[list[dict], list[str]]:
     matches = list(QUOTED_SYMBOL_RE.finditer(body))
     quoted_symbols = [match.group(1).strip() for match in matches]
 
     if not matches:
         return [], []
 
-    segments: list[str] = []
+    segments: list[dict] = []
 
-    prefix = body[: matches[0].start()]
-    prefix = normalize_melody(prefix)
-    if prefix and contains_musical_content(prefix):
-        segments.append(f"CHORD_NONE__MELODY_{prefix}")
+    prefix_raw = body[:matches[0].start()]
+    prefix_normalized = normalize_melody(prefix_raw)
+
+    if prefix_normalized and contains_musical_content(prefix_normalized):
+        segments.append(
+            {
+                "chord": "NONE",
+                "melody_raw": prefix_raw.strip(),
+                "melody_normalized": prefix_normalized,
+                "atomic_token": (
+                    f"CHORD_NONE__MELODY_{prefix_normalized}"
+                ),
+            }
+        )
 
     for index, match in enumerate(matches):
         chord = normalize_chord(match.group(1))
+
         melody_start = match.end()
         melody_end = (
             matches[index + 1].start()
@@ -206,75 +199,161 @@ def extract_chord_melody_segments(body: str) -> tuple[list[str], list[str]]:
             else len(body)
         )
 
-        melody = normalize_melody(body[melody_start:melody_end])
-        if not melody:
-            melody = "<EMPTY>"
+        melody_raw = body[melody_start:melody_end]
+        melody_normalized = normalize_melody(melody_raw)
 
-        segments.append(f"CHORD_{chord}__MELODY_{melody}")
+        if not melody_normalized:
+            melody_normalized = "<EMPTY>"
+
+        segments.append(
+            {
+                "chord": chord,
+                "melody_raw": melody_raw.strip(),
+                "melody_normalized": melody_normalized,
+                "atomic_token": (
+                    f"CHORD_{chord}__MELODY_{melody_normalized}"
+                ),
+            }
+        )
 
     return segments, quoted_symbols
 
 
 def parse_tune(tune_text: str, source_file: str) -> ParsedTune:
-    """Parse a single tune and create metadata and chord-melody tokens."""
+    """
+    Parse one ABC tune.
+
+    The function:
+    1. Extracts header metadata.
+    2. Separates the musical body.
+    3. Extracts structured chord-melody segments.
+    4. Creates atomic chord-melody tokens.
+    5. Creates metadata tokens.
+    """
+
     raw_lines = tune_text.splitlines()
+
     if not raw_lines:
         raise ValueError("Tune is empty.")
 
     headers: dict[str, list[str]] = {}
     body_lines: list[str] = []
+
+    # The musical body normally begins after the first K: header.
     body_started = False
 
     for raw_line in raw_lines:
         line = strip_inline_comment(raw_line).strip()
+
         if not line:
             if body_started:
                 body_lines.append("")
             continue
 
-        match = HEADER_RE.match(line)
+        header_match = HEADER_RE.match(line)
 
-        if not body_started and match:
-            field, value = match.groups()
+        # Before the first K: line, interpret field lines as tune metadata.
+        if not body_started and header_match:
+            field, value = header_match.groups()
+
             field = field.upper()
-            headers.setdefault(field, []).append(value.strip())
+            value = value.strip()
 
-            # In ABC, the first K: line conventionally ends the header.
+            headers.setdefault(field, []).append(value)
+
+            # In ABC notation, the first K: field usually marks the end
+            # of the header and the beginning of the musical body.
             if field == "K":
                 body_started = True
+
             continue
 
+        # After K:, preserve all lines as part of the musical body.
+        # This includes P:, later K: changes, M: changes and note lines.
         if body_started:
             body_lines.append(raw_line)
 
-    reference_number = (headers.get("X") or ["UNKNOWN"])[0]
-    titles = headers.get("T") or ["Untitled"]
-    rhythm = (headers.get("R") or [None])[0]
-    meter = (headers.get("M") or [None])[0]
-    default_note_length = (headers.get("L") or [None])[0]
-    key = (headers.get("K") or [None])[0]
+    reference_number = (
+        headers.get("X", ["UNKNOWN"])[0]
+    )
 
+    titles = headers.get("T", ["Untitled"])
+
+    rhythm = (
+        headers.get("R", [None])[0]
+    )
+
+    meter = (
+        headers.get("M", [None])[0]
+    )
+
+    default_note_length = (
+        headers.get("L", [None])[0]
+    )
+
+    key = (
+        headers.get("K", [None])[0]
+    )
+
+    # Combine the source filename and X: number so that the ID is unique.
     file_stem = Path(source_file).stem
-    song_id = f"{file_stem}_{safe_component(reference_number)}"
 
+    song_id = (
+        f"{safe_component(file_stem)}_"
+        f"{safe_component(reference_number)}"
+    )
+
+    # Clean the musical body while preserving useful structural markers.
     body = prepare_music_body(body_lines)
-    segment_tokens, quoted_symbols = extract_chord_melody_segments(body)
+
+    # Each segment is a dictionary containing:
+    # chord, melody_raw, melody_normalized and atomic_token.
+    segments, quoted_symbols = extract_chord_melody_segments(body)
+
+    # Representation A:
+    # Each complete chord-melody segment becomes one atomic token.
+    segment_tokens = [
+        segment["atomic_token"]
+        for segment in segments
+    ]
 
     metadata_tokens: list[str] = []
+
     if key:
-        metadata_tokens.append(f"[KEY_{safe_component(key)}]")
+        metadata_tokens.append(
+            f"[KEY_{safe_component(key)}]"
+        )
+
     if rhythm:
-        metadata_tokens.append(f"[RHYTHM_{safe_component(rhythm)}]")
+        metadata_tokens.append(
+            f"[RHYTHM_{safe_component(rhythm)}]"
+        )
+
     if meter:
-        metadata_tokens.append(f"[METER_{safe_component(meter)}]")
+        metadata_tokens.append(
+            f"[METER_{safe_component(meter)}]"
+        )
+
     if default_note_length:
         metadata_tokens.append(
-            f"[DEFAULT_LENGTH_{safe_component(default_note_length)}]"
+            "[DEFAULT_LENGTH_"
+            f"{safe_component(default_note_length)}]"
         )
 
     has_chords = bool(quoted_symbols)
-    usable = has_chords and bool(segment_tokens)
-    sequence_tokens = metadata_tokens + segment_tokens if usable else []
+
+    # For the atomic chord-melody experiment, a song is usable only if
+    # at least one quoted chord and one extracted segment are available.
+    usable_for_chord_model = (
+        has_chords and bool(segment_tokens)
+    )
+
+    if usable_for_chord_model:
+        sequence_tokens = (
+            metadata_tokens + segment_tokens
+        )
+    else:
+        sequence_tokens = []
 
     return ParsedTune(
         song_id=song_id,
@@ -287,10 +366,11 @@ def parse_tune(tune_text: str, source_file: str) -> ParsedTune:
         key=key,
         raw_body=body,
         metadata_tokens=metadata_tokens,
+        segments=segments,
         segment_tokens=segment_tokens,
         sequence_tokens=sequence_tokens,
         has_chords=has_chords,
-        usable_for_chord_model=usable,
+        usable_for_chord_model=usable_for_chord_model,
         quoted_symbols=quoted_symbols,
     )
 
@@ -326,6 +406,7 @@ def tune_to_dict(tune: ParsedTune) -> dict:
         "has_chords": tune.has_chords,
         "usable_for_chord_model": tune.usable_for_chord_model,
         "metadata_tokens": tune.metadata_tokens,
+        "segments": tune.segments,
         "segment_tokens": tune.segment_tokens,
         "sequence_tokens": tune.sequence_tokens,
         "number_of_segments": len(tune.segment_tokens),
