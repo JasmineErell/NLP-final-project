@@ -119,44 +119,37 @@ Musical plausibility and error analysis
 
 ## Repository Structure
 
+# Fine-Tuning BERT for Masked Note Prediction in Symbolic Music 🎵🤖
+
+This repository explores whether modern NLP architectures—specifically Masked Language Models (BERT)—and statistical/neural baselines can learn the implicit "grammar" and structural dependencies of symbolic music (ABC notation).
+
+---
+
+## 📁 Repository Architecture
+
+The project is structured as a modular Machine Learning NLP pipeline, separating raw data, preprocessed dataset benchmarks, core processing logic, models, and evaluation outputs.
+
 ```text
-music-bert-project/
-│
-├── README.md
-├── requirements.txt
-│
-├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── splits/
-│
-├── src/
-│   ├── inspect_data.py
-│   ├── preprocess_abc.py
-│   ├── tokenizer.py
-│   ├── create_splits.py
-│   ├── create_masks.py
-│   ├── unigram_baseline.py
-│   ├── ngram_baseline.py
-│   ├── bert_dataset.py
-│   ├── train_bert.py
-│   ├── evaluate.py
-│   └── musical_analysis.py
-│
-├── configs/
-│   └── bert_small.json
-│
-├── notebooks/
-│   ├── 01_dataset_analysis.ipynb
-│   ├── 02_tokenization_analysis.ipynb
-│   └── 03_results_analysis.ipynb
-│
-└── results/
-    ├── tables/
-    ├── figures/
-    ├── predictions/
-    └── checkpoints/
-```
+NLP-final-project/
+├── ABC_cleaned/            # Raw ABC notation music files (jigs, reels, waltzes, etc.)
+├── data/                   # Data storage and benchmarks
+│   ├── processed/          # Preprocessed JSONL tunes, token distributions, and stats
+│   └── splits/             # Train/Validation/Test sets and pre-masked evaluation benchmarks
+├── src/                    # Core source code & processing pipeline
+│   ├── abc_utils.py        # ABC notation parsing utilities (pitches, durations, bars)
+│   ├── factorized_tokenizer.py # Tokenizer splitting ABC notes/chords into factorized primitives
+│   ├── preprocess_abc.py   # Dataset extraction & cleaning logic
+│   ├── create_splits.py    # Train / Validation / Test dataset partitioning
+│   ├── create_masked_examples.py # Masked language modeling (MLM) benchmark creation
+│   ├── evaluate_unigram_ngram.py # Baseline benchmark evaluation engine
+│   └── models/             # Model implementations (Strategy Pattern)
+│       ├── common.py       # BaseMaskedModel abstract class (unified interface)
+│       ├── unigram.py      # Unigram frequency baseline model
+│       ├── ngram.py        # N-gram model (supports bidirectional radius & order)
+│       ├── lstm.py         # PyTorch LSTM sequence model
+│       ├── bert_mlm.py     # Fine-tuned BERT Masked Language Model
+│       └── autoregressive.py # Autoregressive / Causal LM wrapper
+└── results/                # Evaluation outputs (metric JSONs, CSV summaries, predictions)
 
 ---
 
