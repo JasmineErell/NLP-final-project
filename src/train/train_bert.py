@@ -1,61 +1,94 @@
-"""Train the BERT models using cross-domain transfer learning."""
-
 import argparse
+import json
 from pathlib import Path
-from src.models.bert import BertPretrainedFineTuner
-from src.create_splits import load_jsonl
+from transformers import BertTokenizer
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine-tune BERT on ABC data.")
-    parser.add_argument(
-        "--limit",
-        action="store_true",
-        help="Run a quick pilot test with reduced epochs and batch size.",
-    )
+from src.models.bert import MusicBERT
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+def load_jsonl(file_path: Path) -> list:
+    data = []
+    if not file_path.exists():
+        raise FileNotFoundError(f"Missing data file: {file_path}")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                data.append(json.loads(line))
+    return data
+
+def main():
+    parser = argparse.ArgumentParser(description="Train Music BERT")
+    parser.add_argument("--representation", type=str, choices=["factorized", "atomic"], default="factorized")
     parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=16)
-    return parser.parse_args()
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=2e-5)
+    parser.add_argument("--mask-probability", type=float, default=0.15)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--limit", action="store_true", help="Run a tiny pilot test")
+    args = parser.parse_args()
 
-def load_data_splits(version: str) -> tuple[list[list[str]], list[list[str]]]:
-    train_records = load_jsonl(Path("data/splits/train.jsonl"))
-    eval_records = load_jsonl(Path("data/splits/validation.jsonl"))
+    print(f"=== Training BERT ({args.representation.upper()}) ===")
+    
+    # 1. Load Data
+    train_data = load_jsonl(PROJECT_ROOT / "data/splits/train.jsonl")
+    val_data = load_jsonl(PROJECT_ROOT / f"data/splits/validation_masked_{args.representation}.jsonl")
+    
+    seq_key = f"{args.representation}_sequence_tokens"
+    train_sequences = [item[seq_key] for item in train_data]
 
-    sequence_field = f"{version}_sequence_tokens"
+    if args.limit:
+        train_sequences = train_sequences[:64]
+        val_data = val_data[:128]
+        args.epochs = 1
+        print("LIMIT FLAG ACTIVE: Running pilot test...")
 
-    train_sequences = [record[sequence_field] for record in train_records]
-    eval_sequences = [record[sequence_field] for record in eval_records]
+    # 2. Build Vocabulary and Tokenizer
+    print("Building vocabulary...")
+    vocab = set()
+    for seq in train_sequences:
+        vocab.update(seq)
+    
+    # Add special tokens
+    special_tokens = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+    vocab_list = special_tokens + sorted(list(vocab))
+    
+    # Save vocab temporarily for the tokenizer
+    vocab_file = PROJECT_ROOT / f"data/bert_vocab_{args.representation}.txt"
+    with open(vocab_file, "w", encoding="utf-8") as f:
+        for token in vocab_list:
+            f.write(token + "\n")
 
-    return train_sequences, eval_sequences
-
-def main() -> None:
-    args = parse_args()
-
-    print("Loading data splits...")
-    train_atomic, eval_atomic = load_data_splits(version="atomic")
-    train_factorized, eval_factorized = load_data_splits(version="factorized")
-
-    atomic_bert = BertPretrainedFineTuner(
-        name="BERT_Transfer_Atomic",
-        is_factorized=False,
-        output_dir="./results_bert_transfer_atomic",
+    tokenizer = BertTokenizer(
+        vocab_file=str(vocab_file),
+        do_lower_case=False,
+        unk_token="[UNK]",
+        sep_token="[SEP]",
+        pad_token="[PAD]",
+        cls_token="[CLS]",
+        mask_token="[MASK]"
     )
 
-    factorized_bert = BertPretrainedFineTuner(
-        name="BERT_Transfer_Factorized",
-        is_factorized=True,
-        output_dir="./results_bert_transfer_factorized",
+    # 3. Setup Model
+    target_prefix = "CHORD_" if args.representation == "atomic" else "[EVENT_"
+    output_dir = str(PROJECT_ROOT / f"results/bert/{args.representation}")
+    
+    bert_model = MusicBERT(tokenizer=tokenizer, output_dir=output_dir)
+
+    # 4. Train
+    results = bert_model.fit(
+        train_sequences=train_sequences,
+        validation_examples=val_data,
+        target_prefix=target_prefix,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        mask_probability=args.mask_probability,
+        seed=args.seed
     )
 
-    epochs = 1 if args.limit else args.epochs
-    batch_size = 4 if args.limit else args.batch_size
-
-    print(f"\nFine-tuning Pre-trained BERT on Atomic tokens (Epochs: {epochs}, Batch: {batch_size})...")
-    atomic_bert.fit(train_atomic, epochs=epochs, batch_size=batch_size)
-
-    print(f"\nFine-tuning Pre-trained BERT on Factorized tokens (Epochs: {epochs}, Batch: {batch_size})...")
-    factorized_bert.fit(train_factorized, epochs=epochs, batch_size=batch_size)
-
-    print("\nTraining complete! Run 'python -m src.evaluate_bert' to test the models.")
+    print(f"\nTraining Complete! Best Validation Loss: {results.get('best_eval_loss')}")
 
 if __name__ == "__main__":
     main()
