@@ -22,8 +22,12 @@ class SequenceDataset(Dataset):
                 chunk_x = seq[i: i + seq_len]
                 chunk_y = seq[i + 1: i + 1 + seq_len]
 
+                # Pad X if needed
                 if len(chunk_x) < seq_len:
                     chunk_x = chunk_x + [pad_id] * (seq_len - len(chunk_x))
+
+                # Pad Y if needed (This independent check fixes the crash!)
+                if len(chunk_y) < seq_len:
                     chunk_y = chunk_y + [pad_id] * (seq_len - len(chunk_y))
 
                 self.samples.append((
@@ -140,6 +144,9 @@ class MusicLSTMModel(BaseMaskedModel):
 
             avg_loss = total_loss / max(1, len(dataloader))
             history.append(avg_loss)
+
+            # Added print statement to track training progress per epoch
+            print(f"   [LSTM] Epoch [{epoch + 1}/{epochs}] - Loss: {avg_loss:.4f}")
 
         return {"train_loss": history}
 

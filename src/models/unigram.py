@@ -28,9 +28,9 @@ class UnigramModel(BaseMaskedModel):
             self.token_counts.update(seq)
 
         self.total_tokens = sum(self.token_counts.values())
-        self.vocab = list(self.token2id.keys()) if hasattr(self, "token2id") else list(self.token_counts.keys())
+        self.vocab = list(self.token_counts.keys())
 
-        # Precompute probabilities with Add-k / Laplace smoothing
+        # Calculate vocab_size BEFORE using it in denom
         vocab_size = len(self.vocab)
         denom = self.total_tokens + (self.smoothing * vocab_size)
 
