@@ -28,7 +28,6 @@ def main():
     print("\n2. Initializing Models...")
     models = {
         "LSTM": MusicLSTMModel(vocab=vocab, embed_dim=64, hidden_dim=128)
-        # TODO: Add "BERT": MusicBERTModel(...) here when ready
     }
 
     print("\n3. Training Models...")
