@@ -251,6 +251,26 @@ The earlier bidirectional-radius results are not treated as the final n-gram res
 - [ ] Add qualitative error analysis
 - [ ] Complete the final report
 
+## Architectural Dilemma: Model Initialization & Transfer Learning
+
+**Status:** Resolved
+
+### The Problem
+When integrating BERT into our pipeline, we faced a critical decision regarding how to initialize the model's weights and vocabulary to best answer our research question: *Can a model trained on natural language learn the rules of symbolic music?* We had to choose between two distinct NLP paradigms:
+
+*   **Approach A: Architecture Adoption (Training from Scratch)**
+    *   *Method:* Initialize a blank BERT architecture (`BertConfig`) with randomized weights and a strictly custom vocabulary limited only to our ABC notation tokens (e.g., `[CHORD_G]`, `[EVENT_A2]`). 
+    *   *Pros:* Highly efficient. The vocabulary size is small, and a lightweight model (e.g., 4 hidden layers) trains rapidly without the memory overhead of unused English tokens.
+    *   *Cons:* Fails to directly answer our core research question, as it does not test the transferability of pre-existing language representations to music.
+
+*   **Approach B: Cross-Domain Transfer Learning (Pre-trained Fine-Tuning)**
+    *   *Method:* Load the massive pre-trained English model (`bert-base-uncased`), append our custom musical tokens to its existing English vocabulary, resize the embedding matrix to accommodate them, and fine-tune the network on our dataset.
+    *   *Pros:* Directly addresses the project proposal by testing if an *existing* model trained on human language (Wikipedia/BookCorpus) can adapt its learned syntactic dependencies to musical grammar.
+    *   *Cons:* Computationally heavy. Requires managing a massive embedding matrix (~30k English subwords + our custom tokens) and necessitates smaller batch sizes to prevent out-of-memory (OOM) errors during training.
+
+### Resolution
+We opted for **Approach B (Cross-Domain Transfer Learning)**. While Approach A is a standard industry practice for isolated symbolic music models (like *MusicBERT*), Approach B aligns perfectly with our project's academic hypothesis. By resizing the embeddings of `bert-base-uncased`, we are forcing the pre-trained attention heads to map their existing structural logic onto the newly introduced musical vocabulary.
+
 ---
 
 ## Immediate Next Task
