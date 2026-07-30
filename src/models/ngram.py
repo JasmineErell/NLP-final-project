@@ -46,12 +46,10 @@ class NGramModel(BaseMaskedModel):
 
         if r is not None:
             # --- Bidirectional Context (Radius R) ---
-            # Extract available left tokens and pad with <BOS> if needed
             left_tokens = sequence[max(0, target_index - r): target_index]
             pad_left_count = r - len(left_tokens)
             left_ctx = ["<BOS>"] * pad_left_count + left_tokens
 
-            # Extract available right tokens and pad with <EOS> if needed
             right_tokens = sequence[target_index + 1: min(seq_len, target_index + r + 1)]
             pad_right_count = r - len(right_tokens)
             right_ctx = right_tokens + ["<EOS>"] * pad_right_count
@@ -69,21 +67,31 @@ class NGramModel(BaseMaskedModel):
 
         return ()
 
-    def fit(self, train_sequences: List[List[str]], **kwargs) -> Dict[str, Any]:
+    def fit(
+        self, 
+        train_sequences: List[List[str]], 
+        target_prefix: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
         """
-        Extracts N-gram counts from training sequences for ALL context levels
-        (down to radius 0 / unigram) to enable fast backoff during prediction.
+        Extracts N-gram counts, restricting targets to target_prefix if provided.
+        The context window will still include all structural tokens.
         """
         self.ngram_counts.clear()
         self.context_counts.clear()
         self.vocab.clear()
 
         for seq in train_sequences:
-            self.vocab.update(seq)
             seq_len = len(seq)
             
             for i in range(seq_len):
                 target_token = seq[i]
+                
+                # STRICT FILTERING: Only skip the target recording, leave context alone
+                if target_prefix and not target_token.startswith(target_prefix):
+                    continue
+                    
+                self.vocab.add(target_token)
                 
                 if self.radius is not None:
                     # Index counts for radii from self.radius down to 0 (Unigram)

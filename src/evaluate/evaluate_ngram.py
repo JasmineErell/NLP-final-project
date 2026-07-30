@@ -41,9 +41,18 @@ def main() -> None:
         train_sequences = [item[sequence_key] for item in train_data]
 
         # 2. Fit N-Gram Model
-        print(f"Fitting N-Gram Model (Radius 2) on {version} data...")
+        # Define the strict target prefix based on your rules
+        if version == "atomic":
+            target_prefix = "CHORD_"
+        else:
+            target_prefix = "[EVENT_"
+
+        # 2. Fit N-Gram Model with the prefix filter
+        print(f"Fitting N-Gram Model (Radius 2) on {version} data (Prefix: {target_prefix})...")
         ngram_model = NGramModel(radius=2, name=f"ngram_{version}")
-        stats = ngram_model.fit(train_sequences)
+        
+        # Pass the target_prefix into the fit method!
+        stats = ngram_model.fit(train_sequences, target_prefix=target_prefix)
         print(f"   -> Model Stats: {stats}")
 
         # 3. Evaluate first 3 samples
