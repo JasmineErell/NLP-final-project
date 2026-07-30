@@ -88,11 +88,11 @@ class MusicBERT(BaseMaskedModel):
         # 2. Identify target token IDs for the collator
         target_token_ids = []
         for token, token_id in self.tokenizer.get_vocab().items():
-            if token.startswith(target_prefix):
+            if "EVENT_" in token:  # More robust substring check
                 target_token_ids.append(token_id)
                 
-        print(f"Found {len(target_token_ids)} valid target tokens starting with '{target_prefix}'")
-
+        print(f"Found {len(target_token_ids)} valid target tokens containing 'EVENT_'")
+        
         # 3. Prepare Training Dataset (Unmasked - Collator handles masking)
         train_features = []
         truncated_count = 0
@@ -146,20 +146,19 @@ class MusicBERT(BaseMaskedModel):
 
         training_args = TrainingArguments(
             output_dir=self.output_dir,
-            overwrite_output_dir=True,
             num_train_epochs=epochs,
             per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
             learning_rate=learning_rate,
             seed=seed,
             data_seed=seed,
-            evaluation_strategy="epoch",  # Evaluate every epoch
-            save_strategy="epoch",        # Save every epoch
-            load_best_model_at_end=True,  # Crucial: Load the best model when done!
+            eval_strategy="epoch",        # Updated for transformers v5+ (formerly evaluation_strategy)
+            save_strategy="epoch",
+            load_best_model_at_end=True,
             metric_for_best_model="eval_loss",
             greater_is_better=False,
             logging_steps=10,
-            fp16=torch.cuda.is_available() # Use Mixed Precision on Colab GPU
+            fp16=torch.cuda.is_available()
         )
 
         trainer = Trainer(
